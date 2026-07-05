@@ -6,9 +6,11 @@ import { ShoppingBag, Store, UserRound } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
 import { LanguageToggle } from "./language-toggle";
 import { useI18n } from "./i18n-provider";
+import { useAccount } from "./account-provider";
 
 export function SiteShell({ children }: { children: ReactNode }) {
   const { t } = useI18n();
+  const { role, signedIn } = useAccount();
   const nav = [
     [t.marketplace, "/marketplace"],
     [t.categories, "/categories"],
@@ -41,6 +43,9 @@ export function SiteShell({ children }: { children: ReactNode }) {
             <Link className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-ink/10 bg-white dark:border-white/10 dark:bg-white/10" href="/login" aria-label="Account">
               <UserRound size={18} />
             </Link>
+            <span className="hidden rounded-md border border-ink/10 px-2 py-2 text-xs font-semibold dark:border-white/10 sm:inline">
+              {signedIn ? role : "guest"}
+            </span>
             <LanguageToggle />
             <ThemeToggle />
           </div>

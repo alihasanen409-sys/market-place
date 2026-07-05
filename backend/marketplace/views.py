@@ -41,6 +41,12 @@ from .services import (
     create_digital_file_from_upload,
     create_listing_image_from_upload,
 )
+from .permissions import (
+    IsAdminOrOwnerUser,
+    IsAdminOrReadOnly,
+    IsBuyerOrAdminForWrite,
+    IsSellerOrAdminForWrite,
+)
 
 
 User = get_user_model()
@@ -55,7 +61,13 @@ class UserViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action == "create":
             return [permissions.AllowAny()]
-        return [permissions.IsAuthenticated()]
+        return [permissions.IsAuthenticated(), IsAdminOrOwnerUser()]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.request.user.is_staff:
+            return queryset
+        return queryset.filter(id=self.request.user.id)
 
 
 class SellerProfileViewSet(viewsets.ModelViewSet):
@@ -64,6 +76,10 @@ class SellerProfileViewSet(viewsets.ModelViewSet):
     search_fields = ["store_name", "headline", "description", "location"]
     filterset_fields = ["approval_status", "location"]
     ordering_fields = ["created_at", "rating_avg", "total_sales"]
+    permission_classes = [IsSellerOrAdminForWrite]
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
@@ -72,6 +88,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
     search_fields = ["name", "description"]
     filterset_fields = ["is_active", "parent"]
     ordering_fields = ["name", "created_at"]
+    permission_classes = [IsAdminOrReadOnly]
 
 
 class ListingViewSet(viewsets.ModelViewSet):
@@ -85,12 +102,17 @@ class ListingViewSet(viewsets.ModelViewSet):
     search_fields = ["title", "description", "short_description"]
     filterset_fields = ["seller", "category", "status", "product_type"]
     ordering_fields = ["created_at", "price", "rating_avg", "sales_count", "view_count"]
+    permission_classes = [IsSellerOrAdminForWrite]
+
+    def perform_create(self, serializer):
+        seller = SellerProfile.objects.get(user=self.request.user)
+        serializer.save(seller=seller)
 
     @decorators.action(
         detail=True,
         methods=["post"],
         parser_classes=[MultiPartParser, FormParser],
-        permission_classes=[permissions.IsAuthenticated],
+        permission_classes=[IsSellerOrAdminForWrite],
     )
     def upload_image(self, request, pk=None):
         listing = self.get_object()
@@ -109,7 +131,7 @@ class ListingViewSet(viewsets.ModelViewSet):
         detail=True,
         methods=["post"],
         parser_classes=[MultiPartParser, FormParser],
-        permission_classes=[permissions.IsAuthenticated],
+        permission_classes=[IsSellerOrAdminForWrite],
     )
     def upload_file(self, request, pk=None):
         listing = self.get_object()
@@ -125,6 +147,7 @@ class ListingImageViewSet(viewsets.ModelViewSet):
     serializer_class = ListingImageSerializer
     filterset_fields = ["listing", "is_primary"]
     ordering_fields = ["sort_order", "created_at"]
+    permission_classes = [IsSellerOrAdminForWrite]
 
 
 class DigitalFileViewSet(viewsets.ModelViewSet):
@@ -132,12 +155,17 @@ class DigitalFileViewSet(viewsets.ModelViewSet):
     serializer_class = DigitalFileSerializer
     filterset_fields = ["listing", "mime_type"]
     search_fields = ["file_name", "mime_type"]
+    permission_classes = [IsSellerOrAdminForWrite]
 
 
 class CartViewSet(viewsets.ModelViewSet):
     queryset = Cart.objects.select_related("user").prefetch_related("items").all().order_by("-created_at")
     serializer_class = CartSerializer
     filterset_fields = ["user", "status"]
+    permission_classes = [permissions.IsAuthenticated, IsBuyerOrAdminForWrite]
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -155,6 +183,13 @@ class CartItemViewSet(viewsets.ModelViewSet):
     queryset = CartItem.objects.select_related("cart", "listing").all().order_by("-created_at")
     serializer_class = CartItemSerializer
     filterset_fields = ["cart", "listing"]
+    permission_classes = [permissions.IsAuthenticated, IsBuyerOrAdminForWrite]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.request.user.is_staff:
+            return queryset
+        return queryset.filter(cart__user=self.request.user)
 
 
 class OrderViewSet(viewsets.ModelViewSet):
@@ -162,6 +197,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
     filterset_fields = ["buyer", "status", "payment_status"]
     ordering_fields = ["created_at", "subtotal", "total"]
+    permission_classes = [permissions.IsAuthenticated, IsBuyerOrAdminForWrite]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -181,12 +217,26 @@ class ReviewViewSet(viewsets.ModelViewSet):
     serializer_class = ReviewSerializer
     filterset_fields = ["listing", "buyer", "rating"]
     ordering_fields = ["created_at", "rating"]
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsBuyerOrAdminForWrite]
+
+    def perform_create(self, serializer):
+        serializer.save(buyer=self.request.user)
 
 
 class FavoriteViewSet(viewsets.ModelViewSet):
     queryset = Favorite.objects.select_related("user", "listing").all().order_by("-created_at")
     serializer_class = FavoriteSerializer
     filterset_fields = ["user", "listing"]
+    permission_classes = [permissions.IsAuthenticated, IsBuyerOrAdminForWrite]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.request.user.is_staff:
+            return queryset
+        return queryset.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 
 
 class ConversationViewSet(viewsets.ModelViewSet):
@@ -211,6 +261,19 @@ class MessageViewSet(viewsets.ModelViewSet):
     queryset = Message.objects.select_related("conversation", "sender").all().order_by("created_at")
     serializer_class = MessageSerializer
     filterset_fields = ["conversation", "sender", "is_read"]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.request.user.is_staff:
+            return queryset
+        return queryset.filter(
+            Q(conversation__buyer=self.request.user)
+            | Q(conversation__seller__user=self.request.user)
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(sender=self.request.user)
 
 
 class NotificationViewSet(viewsets.ModelViewSet):

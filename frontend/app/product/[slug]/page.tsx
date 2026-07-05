@@ -1,10 +1,29 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { useAccount } from "@/components/account-provider";
 import { fallbackListings } from "@/lib/api";
 
 export default function ProductPage({ params }: { params: { slug: string } }) {
+  const router = useRouter();
+  const { role, signedIn } = useAccount();
+  const [message, setMessage] = useState("");
   const listing = fallbackListings.find((item) => item.slug === params.slug) || fallbackListings[0];
   const image = listing.images[0]?.image_url;
+  const addToCart = () => {
+    if (!signedIn) {
+      router.push("/login");
+      return;
+    }
+    if (role !== "buyer") {
+      setMessage("Only buyer accounts can add products to cart.");
+      return;
+    }
+    router.push("/cart");
+  };
 
   return (
     <main className="mx-auto grid max-w-7xl gap-8 px-4 py-8 lg:grid-cols-[1fr_360px]">
@@ -20,8 +39,9 @@ export default function ProductPage({ params }: { params: { slug: string } }) {
           <span className="text-sm text-ink/65 dark:text-mist/65">Price</span>
           <strong className="text-2xl">${listing.price}</strong>
         </div>
-        <button className="mb-3 w-full rounded-md bg-coral px-4 py-3 font-semibold text-white">Add to cart</button>
+        <button className="mb-3 w-full rounded-md bg-coral px-4 py-3 font-semibold text-white" onClick={addToCart} type="button">Add to cart</button>
         <Link className="block rounded-md border border-ink/10 px-4 py-3 text-center font-semibold dark:border-white/10" href="/chat">Contact seller</Link>
+        {message ? <p className="mt-3 rounded-md bg-mist p-3 text-sm dark:bg-white/10">{message}</p> : null}
       </aside>
     </main>
   );
